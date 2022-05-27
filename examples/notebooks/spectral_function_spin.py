@@ -49,8 +49,8 @@ class LHS(sp.linalg.LinearOperator):
 #
 on_the_fly = False # toggles between using a `hamiltnian` or a `quantum_LinearOperator` object
 # chain length
-L = 12
-# on-site spin size 
+L = 4
+# on-site spin size
 S = "1/2"
 # translation transformation on the lattice sites [0,...,L-1]
 T = (np.arange(L)+1)%L
@@ -77,6 +77,8 @@ psi0 = psi0.ravel()
 qs = np.arange(-L//2+1,L//2,1)
 # define frequencies to calculate spectral function for
 omegas = np.arange(0,4,0.05)
+# omegas = np.arange(0,4,2)
+
 # spectral peaks broadening factor
 eta = 0.1
 # allocate arrays to store data
@@ -108,6 +110,9 @@ for j,q in enumerate(qs):
 			check_symm=False,check_pcon=False,check_herm=False)
 	# shift sectors
 	psiA = basisq.Op_shift_sector(basis0,Op_list,psi0)
+	if psiA.size == 1:
+		# in this case psiA.shape is (),which will cause len(psiA) and psiA.shape error.
+		psiA = np.array([psiA])
 	#
 	### apply vector correction method
 	#
@@ -130,7 +135,7 @@ for j,q in enumerate(qs):
 	S_z_tot = 0 + eval(S)
 	# calculate magnetization density from S_z_tot as defined in the documentation
 	# m = S_z_tot / (S * N), S: local spin (as number), N: total spins
-	m = S_z_tot/(eval(S)*L) 
+	m = S_z_tot/(eval(S)*L)
 	basisq = spin_basis_general(L,S=S,m=m,pauli=False,**block)
 	# define operators in the q-momentum sector
 	if on_the_fly:
@@ -141,6 +146,9 @@ for j,q in enumerate(qs):
 			check_symm=False,check_pcon=False,check_herm=False)
 	# shift sectors
 	psiA = basisq.Op_shift_sector(basis0,Op_list,psi0)
+	if psiA.size == 1:
+		# in this case psiA.shape is (),which will cause len(psiA) and psiA.shape error.
+		psiA = np.array([psiA])
 	#
 	### apply vector correction method
 	#
