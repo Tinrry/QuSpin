@@ -107,6 +107,8 @@ for j,q in enumerate(qs):
 		Hq = hamiltonian(static,[],basis=basisq,dtype=np.complex128,
 			check_symm=False,check_pcon=False,check_herm=False)
 	# shift sectors
+	print("spin_basis_general basis0")
+	print(basis0)
 	psiA = basisq.Op_shift_sector(basis0,Op_list,psi0)
 	#
 	### apply vector correction method
