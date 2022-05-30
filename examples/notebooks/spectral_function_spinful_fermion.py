@@ -38,6 +38,11 @@ interaction = [[U, 0, 0]]
 static = [
     ['-+|', hop_from_impurity],
     ['-+|', hop_to_impurity],
+    ['|-+', hop_from_impurity],
+    ['|-+', hop_to_impurity],
+    ['n|', pot],  # up on-site potention
+    ['|n', pot],  # down on-site potention
+    ['n|n', interaction]  # up-down interaction
 ]
 print(static)
 dynamic = []
@@ -109,12 +114,12 @@ else:
 psi0 = psi0.ravel()
 # print(psi0)
 # define frequencies to calculate spectral function for
-omegas = np.arange(0, 1, 0.2)
+omegas = np.arange(0, 4, 0.02)
 # spectral peaks broadening factor
 eta = 0.1
 # allocate arrays to store data
 # Anderson model for impurity node
-Gpm = np.zeros_like(omegas) + 0.0j
+Gpm = np.zeros(omegas.shape+(1,), dtype=np.complex128)
 print(Gpm)
 print("computing impurity site 0.")
 #
@@ -128,9 +133,11 @@ print("computing impurity site 0.")
 q = -L // 2 + 1
 T = (np.arange(L) + 1) % L
 block = dict(qblock=(T, q))
-f = lambda i: np.exp(-2j * np.pi * q * i / L)
+f = lambda i: np.exp(-2j * np.pi * q * i / L) * np.sqrt(1.0 / (2 * L))
+
+# 产生算符，会导致电子增加，所以要加1
 basisq = spinful_fermion_basis_general(N=L, Nf=(N_up+1, N_down))
-Op_list = [["+|", [0], 1.0+0.0j]]
+Op_list = [["+|", [0], f(0)]]
 # define operators in the q-momentum sector
 if on_the_fly:
     Hq = quantum_LinearOperator(static, basis=basisq, dtype=np.complex128,
@@ -148,14 +155,13 @@ for i, omega in enumerate(omegas):
     lhs = LHS(Hq, omega, eta, E0)
     x, *_ = sp.linalg.bicg(lhs, psiA)
     print(i, x)
-    Gpm[i] = -np.vdot(psiA, x) / np.pi
+    Gpm[i,0] = -np.vdot(psiA, x) / np.pi
 #
 ##### plot results
 #
-
-plt.plot(Gpm.imag)
+plt.plot(omegas, Gpm[:,0].imag)
 plt.xlabel('$\\omega$')
 plt.ylabel('$Gpm.imag$')
 plt.title('$G_{+-}(\\omega)$')
 plt.show()
-# plt.close()
+plt.close()
