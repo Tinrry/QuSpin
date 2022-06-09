@@ -131,8 +131,6 @@ print("computing impurity site 0.")
 #
 # divide by extra sqrt(2) to get extra factor of 1/2 when taking sandwich: needed since H = 1/2 (S^+_i S^-_j + h.c.) + S^z_j S^z_j
 q = -L // 2 + 1
-T = (np.arange(L) + 1) % L
-block = dict(qblock=(T, q))
 f = lambda i: np.exp(-2j * np.pi * q * i / L) * np.sqrt(1.0 / (2 * L))
 
 # 产生算符，会导致电子增加，所以要加1
