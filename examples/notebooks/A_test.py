@@ -59,6 +59,12 @@ H0 = hamiltonian(static,dynamic,basis=basis0,dtype=np.float64, **no_checks)
 psi0 = psi0.ravel()
 print(E0,psi0)
 
+# 计算行列式的特征值，特征向量
+from numpy.linalg import eig
+c = eig(H0.toarray())
+c = sorted(c)
+print(c[0], c[1])
+
 # ===================================== direct calculation of spectral functions using symmetries =====================
 
 del L
@@ -110,6 +116,12 @@ Op_list = [["+|", [0], 1.0 ]]
 # define operators in the q-momentum sector
 Hq = hamiltonian(static, [], basis=basisq, dtype=np.complex128,
         check_symm=False, check_pcon=False, check_herm=False)
+
+hqV_1 = Hq.eigvalsh()
+hqE_2, HqV_2 = Hq.eigh()
+
+c = eig(Hq.toarray())
+
 # shift sectors
 psiA = basisq.Op_shift_sector(basis0, Op_list, psi0)
 print(psiA)
@@ -120,8 +132,9 @@ print(psiA)
 # solve (z-H)|x> = |A> solve for |x>  using iterative solver for each omega
 for i,omega in enumerate(omegas):
     lhs = LHS(Hq,omega,eta,E0)
-    x,*_ = sp.linalg.bicg(lhs,psiA)
-    print(i,x)
+    x, exitCode = sp.linalg.bicg(lhs,psiA)
+    assert exitCode == 0
+    np.allclose(lhs._matvec(x), psiA)
     Gpm[i] = -np.vdot(psiA,x)/np.pi
 
 
