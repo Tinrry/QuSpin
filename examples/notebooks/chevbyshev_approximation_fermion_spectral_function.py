@@ -49,12 +49,15 @@ class LHS(sp.linalg.LinearOperator):
         return self._z.conj() * v - self._H.dot(v, **self._kwargs)
 
 
-L = 3  # system size
-paras = np.array([8.0, -2.0, 2.0, 0.5, 3.0, 1.0, -0.2, 0.2])
+L = 6  # system size
+part = L // 2  # 根据对称性，进行参数缩减
+paras = np.array([9.0, 0.0, 2.0, 1.8, 4.0, 0.0, 0.2, 0.0])
 U = paras[0]
 ef = paras[1]
-eis = paras[2:2 + L]
-hoppings = paras[2 + L:]
+eis_part = paras[2:2 + part]
+hoppings_part = paras[2 + part:]
+eis = np.concatenate((eis_part, eis_part))
+hoppings = np.concatenate((hoppings_part, -1 * hoppings_part))
 
 occupancy = L + 1
 N_up = occupancy // 2
@@ -91,9 +94,6 @@ eta = 0.1
 del L
 L = occupancy
 
-# divide by extra sqrt(2) to get extra factor of 1/2 when taking sandwich: needed since H = 1/2 (S^+_i S^-_j + h.c.) + S^z_j S^z_j
-q = -L // 2 + 1
-f = lambda i: np.exp(-2j * np.pi * q * i / L) * np.sqrt(1.0 / (2 * L))
 # 产生算符，会导致电子增加，所以要加1
 basisq = spinful_fermion_basis_general(N=L, Nf=(N_up + 1, N_down))
 Op_list = [["+|", [0], f(0)]]

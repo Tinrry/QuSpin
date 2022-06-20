@@ -23,8 +23,8 @@ U = paras[0]
 ef = paras[1]
 eis_part = paras[2:2 + part]
 hoppings_part = paras[2 + part:]
-eis = np.concatenate((eis_part, eis_part))
-hoppings = np.concatenate((hoppings_part, -1 * hoppings_part))
+eis = np.concatenate((eis_part, -1 * eis_part))
+hoppings = np.concatenate((hoppings_part, hoppings_part))
 
 occupancy = L + 1
 N_up = occupancy // 2
