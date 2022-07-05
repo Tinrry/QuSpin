@@ -1,84 +1,28 @@
-from __future__ import print_function, division
-#
-import sys, os
-
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'  # uncomment this line if omp error occurs on OSX for python 3
-os.environ['OMP_NUM_THREADS'] = '1'  # set number of OpenMP threads to run in parallel
-os.environ['MKL_NUM_THREADS'] = '1'  # set number of MKL threads to run in parallel
-#
-quspin_path = os.path.join(os.getcwd(), "../../")
-sys.path.insert(0, quspin_path)
-
 import numpy as np
-
-from quspin.basis import spinful_fermion_basis_general
+from quspin.basis import spinful_fermion_basis_1d, spinful_fermion_basis_general
 from quspin.operators import hamiltonian, quantum_LinearOperator
 import scipy.sparse as sp
+import numexpr, cProfile
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
-L = 6  # system size
-part = L // 2  # 根据对称性，进行参数缩减
-paras = np.array([9.0, 0.0, 2.0, 1.8, 4.0, 0.0, 0.2, 0.0])
-U = paras[0]
-ef = paras[1]
-eis_part = paras[2:2 + part]
-hoppings_part = paras[2 + part:]
-eis = np.concatenate((eis_part, -1 * eis_part))
-hoppings = np.concatenate((hoppings_part, hoppings_part))
+mpl.rcParams['figure.figsize'] = (12, 10)
+mpl.rcParams['font.sans-serif'] = ['Microsoft Yahei']
 
-occupancy = L + 1
-N_up = occupancy // 2
-N_down = occupancy - N_up
+import matplotlib as mpl
 
-# hop_to_xxx， hop_from_xxx都是正符号，同一个系数，在hamiltonian中已经定好了符号
-hop_to_impurity = [[hoppings[i], 0, i + 1] for i in range(L)]
-hop_from_impurity = [[hoppings[i], i + 1, 0] for i in range(L)]
-pot = [[ef, 0]] + [[eis[i], i + 1] for i in range(L)]
-interaction = [[U, 0, 0]]
-
-# 在符号上 都用‘-+’ 或者‘+-’，不可以掺杂
-static = [
-    ['-+|', hop_from_impurity],
-    ['-+|', hop_to_impurity],
-    ['|-+', hop_from_impurity],
-    ['|-+', hop_to_impurity],
-    ['n|', pot],  # up on-site potention
-    ['|n', pot],  # down on-site potention
-    ['n|n', interaction]  # up-down interaction
-]
-
-dynamic = []
-no_checks = dict(check_pcon=False, check_symm=False, check_herm=True)
-
-# construct basis
-basis0 = spinful_fermion_basis_general(N=occupancy, Nf=(N_up, N_down))
-
-H0 = hamiltonian(static, dynamic, basis=basis0, dtype=np.float64, **no_checks)
-# calculate ground state
-[E0], psi0 = H0.eigsh(k=1, which="SA")
-
-from numpy.linalg import eig
-
-c = eig(H0.toarray())
-eigenvalues = sorted(c[0])
-assert np.isclose(eigenvalues[:1], [E0])
-
-del L
-L = occupancy
-omegas = np.arange(-20, 20, 0.01)
-# spectral peaks broadening factor
-eta = 0.1
+mpl.rcParams['figure.figsize'] = (12, 6)
 
 
-#
-#
-# define custom LinearOperator object that generates the left hand side of the equation.
-#
 class LHS(sp.linalg.LinearOperator):
     #
-    def __init__(self, H, omega, eta, E0, kwargs={}):
-        self._H = H  # Hamiltonian
-        self._z = omega + 1j * eta + E0  # complex energy
+    def __init__(self, H, omega, eta, E0, isparticle=True, kwargs={}):
+        if isparticle:
+            self._H = H  # Hamiltonian
+            self._z = omega + 1j * eta + E0  # complex energy
+        else:
+            self._H = -H  # Hamiltonian
+            self._z = omega + 1j * eta - E0  # complex energy
         self._kwargs = kwargs  # arguments
 
     #
@@ -102,112 +46,166 @@ class LHS(sp.linalg.LinearOperator):
         return self._z.conj() * v - self._H.dot(v, **self._kwargs)
 
 
+parameters = [[float(x) for x in d.strip().split(',')[1:]] for d in open('paras.csv').readlines()]
+print(parameters[2])
 
-# allocate arrays to store data
-# Anderson model for impurity node
-Gpm = np.zeros_like(omegas, dtype=np.complex128)
+NN = 4
+
+L = 6  # system size
+# L = 4  # system size
+part = L // 2  # 根据对称性，进行参数缩减
+# paras = np.array([9.0, 0.0, 2.0, 1.8, 4.0, 0.0, 0.2, 0.0])
+paras = np.array(parameters[NN])
+# paras = np.array([9.0, 0.0, 2.0, 1.8, 0.0, 0.2])
+U = paras[0]
+ef = paras[1]
+eis_part = paras[2:2 + part]
+hoppings_part = paras[2 + part:]
+eis = np.concatenate((eis_part, -1 * eis_part))
+hoppings = np.concatenate((hoppings_part, hoppings_part))
+
+# hop_to_xxx， hop_from_xxx都是正符号，同一个系数，在hamiltonian中已经定好了符号
+hop_to_impurity = [[hoppings[i], 0, i + 1] for i in range(L)]
+hop_from_impurity = [[hoppings[i], i + 1, 0] for i in range(L)]
+pot = [[ef, 0]] + [[eis[i], i + 1] for i in range(L)]
+interaction = [[U, 0, 0]]
+
+# 在符号上 都用‘-+’ 或者‘+-’，不可以掺杂
+static = [
+    ['-+|', hop_from_impurity],
+    ['-+|', hop_to_impurity],
+    ['|-+', hop_from_impurity],
+    ['|-+', hop_to_impurity],
+    ['n|', pot],  # up on-site potention
+    ['|n', pot],  # down on-site potention
+    ['z|z', interaction]  # up-down interaction
+]
+
+omegas = np.arange(-10, 10, 0.03)
+# spectral peaks broadening factor
+eta = 0.9
+
+Green = np.zeros_like(omegas, dtype=np.complex128)
+
+cdagger_op = [["+|", [0], 1.0]]
+c_op = [["-|", [0], 1.0]]
+
+plt.plot(paras, '-.o')
+plt.ylim([-5, 10])
+plt.grid()
+
+# this is for (3, 4) basis
+occupancy = L + 1
+N_up = occupancy // 2
+N_down = occupancy - N_up
+
+dynamic = []
+no_checks = dict(check_pcon=False, check_symm=False, check_herm=False)
+
+# construct basis
+basis_GS = spinful_fermion_basis_general(N=occupancy, Nf=(N_up, N_down))
+
+H0 = hamiltonian(static, dynamic, basis=basis_GS, dtype=np.float64, **no_checks)
+# calculate ground state
+[E0], GS = H0.eigsh(k=1, which="SA")
 
 # 产生算符，会导致电子增加，所以要加1
-basisq = spinful_fermion_basis_general(N=L, Nf=(N_up + 1, N_down))
-Op_list = [["+|", [0], 1.0]]
+basis_H1 = spinful_fermion_basis_general(N=occupancy, Nf=(N_up + 1, N_down))
+H1 = hamiltonian(static, [], basis=basis_H1, dtype=np.complex128, **no_checks)
 
-Hq = hamiltonian(static, [], basis=basisq, dtype=np.complex128,
-                 check_symm=False, check_pcon=False, check_herm=False)
-
-hqV_1 = Hq.eigvalsh()
-hqE_2, HqV_2 = Hq.eigh()
-c = eig(Hq.toarray())
-assert np.isclose(hqV_1[:1], hqE_2[:1])
-# shift sectors
-psiA = basisq.Op_shift_sector(basis0, Op_list, psi0)
-#
-### apply vector correction method
-#
+# shift sectors, |A> = c^\dagger |GS>
+psiA = basis_H1.Op_shift_sector(basis_GS, cdagger_op, GS)
 # solve (z-H)|x> = |A> solve for |x>  using iterative solver for each omega
+#   |x> = (z+E0-H)^-1 c^\dagger |GS>
 for i, omega in enumerate(omegas):
-    lhs = LHS(Hq, omega, eta, E0)
+    lhs = LHS(H1, omega, eta, E0)
     x, exitCode = sp.linalg.bicg(lhs, psiA)
     assert exitCode == 0
     np.allclose(lhs._matvec(x), psiA)
-    Gpm[i] = -np.vdot(psiA, x) / np.pi
-#
-##### plot results
-#
-plt.plot(omegas, Gpm[:].imag)
+    Green[i] += -np.vdot(psiA, x) / np.pi
+
+# 湮灭算符，会导致电子减少，所以要减1
+basis_H2 = spinful_fermion_basis_general(N=occupancy, Nf=(N_up - 1, N_down))
+H2 = hamiltonian(static, [], basis=basis_H2, dtype=np.complex128, **no_checks)
+
+# shift sectors, |A> = c |GS>
+psiA = basis_H2.Op_shift_sector(basis_GS, c_op, GS)
+# solve (z-H)|x> = |A> solve for |x>  using iterative solver for each omega
+#   |x> = (z-E0+H)^-1 c |GS>
+for i, omega in enumerate(omegas):
+    lhs = LHS(H2, omega, eta, E0, isparticle=False)
+    x, exitCode = sp.linalg.bicg(lhs, psiA)
+    assert exitCode == 0
+    np.allclose(lhs._matvec(x), psiA)
+    Green[i] += -np.vdot(psiA, x) / np.pi
+
+plt.plot(omegas, Green[:].imag)
 plt.xlabel('$\\omega$')
 plt.ylabel('$Gpm.imag$')
 plt.title('$G_{+-}(\\omega)$')
+plt.ylim([0, 0.45])
+plt.xlim([-25, 25])
+plt.grid()
 plt.show()
-# plt.close()
-area = (omegas[1]-omegas[0]) * Gpm[:].imag.sum()
 
-# for result valid
-#
-#
-# define custom LinearOperator object that generates the left hand side of the equation.
-#
-class LHS_mirror(sp.linalg.LinearOperator):
-    #
-    def __init__(self, H, omega, eta, E0, kwargs={}):
-        self._H = H  # Hamiltonian
-        self._z = omega + 1j * eta - E0  # complex energy
-        self._kwargs = kwargs  # arguments
+# this is for (4, 3) basis
+occupancy = L + 1
 
-    #
-    @property
-    def shape(self):
-        return (self._H.Ns, self._H.Ns)
+# if 2 *(occupancy//2) != occupancy:
+if 0:
+    N_down = occupancy // 2
+    N_up = occupancy - N_down
 
-    #
-    @property
-    def dtype(self):
-        return np.dtype(self._H.dtype)
+    dynamic = []
+    no_checks = dict(check_pcon=False, check_symm=False, check_herm=False)
 
-    #
-    def _matvec(self, v):
-        # left multiplication
-        return self._z * v + self._H.dot(v, **self._kwargs)
+    # construct basis
+    basis_GS = spinful_fermion_basis_general(N=occupancy, Nf=(N_up, N_down))
 
-    #
-    def _rmatvec(self, v):
-        # right multiplication
-        return self._z.conj() * v + self._H.dot(v, **self._kwargs)
+    H0 = hamiltonian(static, dynamic, basis=basis_GS, dtype=np.float64, **no_checks)
+    # calculate ground state
+    [E0], GS = H0.eigsh(k=1, which="SA")
 
+    # 产生算符，会导致电子增加，所以要加1
+    basis_H1 = spinful_fermion_basis_general(N=occupancy, Nf=(N_up + 1, N_down))
+    H1 = hamiltonian(static, [], basis=basis_H1, dtype=np.complex128, **no_checks)
 
-Gpm_mirror = np.zeros_like(omegas, dtype=np.complex128)
+    # shift sectors, |A> = c^\dagger |GS>
+    psiA = basis_H1.Op_shift_sector(basis_GS, cdagger_op, GS)
+    # solve (z-H)|x> = |A> solve for |x>  using iterative solver for each omega
+    #   |x> = (z+E0-H)^-1 c^\dagger |GS>
+    for i, omega in enumerate(omegas):
+        lhs = LHS(H1, omega, eta, E0)
+        x, exitCode = sp.linalg.bicg(lhs, psiA)
+        assert exitCode == 0
+        np.allclose(lhs._matvec(x), psiA)
+        Green[i] += -np.vdot(psiA, x) / np.pi
 
-# 产生算符，会导致电子增加，所以要加1
-basisq_mirror = spinful_fermion_basis_general(N=L, Nf=(N_up - 1, N_down))
-Op_list_mirror = [["-|", [0], 1.0]]
+    # 湮灭算符，会导致电子减少，所以要减1
+    basis_H2 = spinful_fermion_basis_general(N=occupancy, Nf=(N_up - 1, N_down))
+    H2 = hamiltonian(static, [], basis=basis_H2, dtype=np.complex128, **no_checks)
 
-Hq_mirror = hamiltonian(static, [], basis=basisq_mirror, dtype=np.complex128,
-                        check_symm=False, check_pcon=False, check_herm=False)
+    # shift sectors, |A> = c^ |GS>
+    psiA = basis_H2.Op_shift_sector(basis_GS, c_op, GS)
+    # solve (z-H)|x> = |A> solve for |x>  using iterative solver for each omega
+    #   |x> = (z-E0+H)^-1 c |GS>
+    for i, omega in enumerate(omegas):
+        lhs = LHS(H2, omega, eta, E0, isparticle=False)
+        x, exitCode = sp.linalg.bicg(lhs, psiA)
+        assert exitCode == 0
+        np.allclose(lhs._matvec(x), psiA)
+        Green[i] += -np.vdot(psiA, x) / np.pi
 
-hqE_1_mirror = Hq_mirror.eigvalsh()
-hqE_2_mirror, HqV_2_mirror = Hq_mirror.eigh()
-c_mirror = eig(Hq_mirror.toarray())
-assert np.isclose(hqE_1_mirror[:1], hqE_2_mirror[:1])
-# shift sectors
-psiA_mirror = basisq_mirror.Op_shift_sector(basis0, Op_list_mirror, psi0)
-#
-### apply vector correction method
-#
-# solve (z-H)|x> = |A> solve for |x>  using iterative solver for each omega
-for i, omega in enumerate(omegas):
-    lhs_mirror = LHS_mirror(Hq_mirror, omega, eta, E0)
-    x_mirror, exitCode = sp.linalg.bicg(lhs_mirror, psiA_mirror)
-    assert exitCode == 0
-    np.allclose(lhs_mirror._matvec(x_mirror), psiA_mirror)
-    Gpm_mirror[i] = -np.vdot(psiA_mirror, x_mirror) / np.pi
-#
-##### plot results
-#
-plt.plot(omegas, Gpm_mirror[:].imag)
+    Green *= 0.5
+
+area = (omegas[1] - omegas[0]) * Green[:].imag.sum()
+print("area: ", area)
+
+plt.plot(omegas, Green[:].imag)
 plt.xlabel('$\\omega$')
-plt.ylabel('$Gpm_mirror.imag$')
+plt.ylabel('$Gpm.imag$')
 plt.title('$G_{+-}(\\omega)$')
+plt.ylim([0, 0.45])
+plt.xlim([-25, 25])
+plt.grid()
 plt.show()
-# plt.close()
-area_mirror = (omegas[1]-omegas[0]) * Gpm_mirror[:].imag.sum()
-
-print(f"========== area for tow parts : {(area+area_mirror):.2f} ==========")
