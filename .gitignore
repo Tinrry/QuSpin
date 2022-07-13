@@ -1,3 +1,4 @@
+*.csv
 # compliled python code #
 *.pyc
 *.pyf
