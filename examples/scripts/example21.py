@@ -198,7 +198,7 @@ xmin,xmax = ax.get_xlim()
 ax.set_xlim((xmin,10*xmax))
 ax.legend(loc="lower left")
 #
-# inset adjustment to zoom in low-temp limit.
+# inset adjustment to zoom in low-nn limit.
 xmin,xmax = axinset.get_xlim()
 #
 a = -0.6

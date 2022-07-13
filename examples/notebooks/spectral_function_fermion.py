@@ -133,7 +133,6 @@ def spectral_function_fermion(omegas, paras):
         Green[i] += -np.vdot(psiA, x) / np.pi
 
     # this is for (4, 3) basis
-    occupancy = L + 1
 
     # if 2 *(occupancy//2) != occupancy:
     if 0:
@@ -182,8 +181,6 @@ def spectral_function_fermion(omegas, paras):
 
         Green *= 0.5
 
-    area = (omegas[1] - omegas[0]) * Green[:].imag.sum()
-    print("area: ", area)
     return Green[:].imag
 
 
