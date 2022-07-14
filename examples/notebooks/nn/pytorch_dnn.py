@@ -136,11 +136,7 @@ def train_model(model, criterion, optimizer, batch_size, num_epochs, orders, tra
 
 
 def predict_polynomial(model, batch_size, orders, test_file, predict_file, **kwargs):
-    # initialize predict data
-    df = pd.read_csv(test_file, index_col=0)
-    predict_df = df.iloc[:, :input_size]
-    del df
-
+    total_poly = None
     for order in orders:
         test_dataset = AndersonChebyshevDataset(csv_file=test_file, order=order, transform=transforms.ToTensor())
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -149,7 +145,7 @@ def predict_polynomial(model, batch_size, orders, test_file, predict_file, **kwa
         model.eval()
         predict = None
         with torch.no_grad():
-            total = 0
+            sample_size = 0
             L2 = 0
             for sample_batched in test_dataloader:
                 andersons = sample_batched['anderson'].reshape(-1, 8)
@@ -161,11 +157,21 @@ def predict_polynomial(model, batch_size, orders, test_file, predict_file, **kwa
                     predict = outputs
                 else:
                     predict = np.concatenate((predict, outputs), axis=0)
-                total += poly.size(0)
-        predict_df[f'poly_{order}'] = predict
-        RMSE = L2 * (1 / math.sqrt(total))
-        print(f'RMSE of the network predict {order}-th on the {total} test samples: {RMSE} ')
+                sample_size += poly.size(0)
+        if total_poly is None:
+            total_poly = predict
+        else:
+            total_poly = np.concatenate((total_poly, predict), axis=1)
+
+        RMSE = L2 * (1 / math.sqrt(sample_size))
+        print(f'RMSE of the network predict {order}-th on the {sample_size} test samples: {RMSE} ')
     if 'test' not in kwargs.keys() or kwargs['test'] is False:
+        # initialize predict data
+        df = pd.read_csv(test_file, index_col=0)
+        predict_df = df.iloc[:, :input_size]
+        del df
+        poly_orders = [f'poly_{order}' for order in orders]
+        predict_df[poly_orders] = total_poly
         predict_df.to_csv(predict_file)
     return
 
@@ -248,7 +254,8 @@ if __name__ == '__main__':
 
     # Train the model, save model ckpt in path
     print("=== step 1: training models ===")
-    train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path=f'model_{input_size}', test=True)
+    train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path=f'model_{input_size}',
+                test=True)
     # Predict data, save nn polynomial in predict_file
     print("=== step 2: predict test data ===")
     model = NeuralNet(input_size, no_hidden_units, output_size)
