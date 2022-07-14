@@ -104,7 +104,7 @@ class NeuralNet(nn.Module):
         return out
 
 
-def train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path):
+def train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path, **kwargs):
     for order in orders:
         print(f'=== training model_{order}.ckpt ===')
         # dataset
@@ -129,11 +129,13 @@ def train_model(model, criterion, optimizer, batch_size, num_epochs, orders, tra
                 if (i + 1) % 100 == 0:
                     print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs, i + 1, total_step,
                                                                              loss.item()))
-        model_path = os.path.join(path, f'model_{order}.ckpt')
-        torch.save(model.state_dict(), model_path)
+        if 'test' not in kwargs.keys() or kwargs['test'] is False:
+            model_path = os.path.join(path, f'model_{order}.ckpt')
+            torch.save(model.state_dict(), model_path)
+    return
 
 
-def predict_polynomial(model, batch_size, orders, test_file, predict_file):
+def predict_polynomial(model, batch_size, orders, test_file, predict_file, **kwargs):
     # initialize predict data
     df = pd.read_csv(test_file, index_col=0)
     predict_df = df.iloc[:, :input_size]
@@ -159,11 +161,13 @@ def predict_polynomial(model, batch_size, orders, test_file, predict_file):
                     predict = outputs
                 else:
                     predict = np.concatenate((predict, outputs), axis=0)
-                total += sample_batched.size(0)
+                total += poly.size(0)
         predict_df[f'poly_{order}'] = predict
         RMSE = L2 * (1 / math.sqrt(total))
         print(f'RMSE of the network predict {order}-th on the {total} test samples: {RMSE} ')
-    predict_df.to_csv(predict_file)
+    if 'test' not in kwargs.keys() or kwargs['test'] is False:
+        predict_df.to_csv(predict_file)
+    return
 
 
 def show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
@@ -186,13 +190,14 @@ def show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
         axs_1[i].set_ylabel('spectral')
         axs_1[i].set_xlim([x_min, x_max])
         axs_1[i].set_ylim([0, 0.45])
+    return
 
 
 def show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
     plt.figure(2)
     fig_2, axs_2 = plt.subplots(plot_row, plot_col, figsize=(5 * plot_col, 2.5 * plot_row), facecolor='w',
                                 edgecolor='k')
-    fig_2.subplots_adjust(hspace=0.5, wspace=0.5)
+    fig_2.subplots_adjust(hspace=0.7, wspace=0.5)
     axs_2 = axs_2.ravel()
     fig_2.suptitle("Comparisons Chebyshev vs neural network")
 
@@ -204,6 +209,7 @@ def show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
         axs_2[i].plot(x, y, 'ro')
         axs_2[i].set_xlabel('Neural Network coefficient')
         axs_2[i].set_ylabel('Exact coefficient')
+    return
 
 
 if __name__ == '__main__':
@@ -222,12 +228,14 @@ if __name__ == '__main__':
     no_hidden_units = [2 * input_size, 2 * input_size, 4 * input_size, 4 * input_size, 8 * input_size, 8 * input_size,
                        8 * input_size, 8 * input_size, 4 * input_size, 4 * input_size, 2 * input_size, 2 * input_size]
     output_size = 1  # out for predict i-th order chebyshev polynomial
-    num_epochs = 50
-    batch_size = 100
+
+    # test function
+    num_epochs = 5
+    batch_size = 2
     learning_rate = 0.001
-    orders = [x for x in range(n + 1)]  # 训练第几个系数
+    orders = [x for x in range(2)]  # 训练第几个系数
     # sample_size are 5000 in paper
-    sample_size = 2000
+    sample_size = 2
     train_file = f'train_{sample_size}_{n}.csv'
     test_file = os.path.join('..', 'paras.csv')
     predict_file = f'predict_{input_size}_{n}.csv'
@@ -240,17 +248,17 @@ if __name__ == '__main__':
 
     # Train the model, save model ckpt in path
     print("=== step 1: training models ===")
-    train_model(model, batch_size, num_epochs, orders, train_file, path=f'model_{input_size}')
+    train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path=f'model_{input_size}', test=True)
     # Predict data, save nn polynomial in predict_file
     print("=== step 2: predict test data ===")
     model = NeuralNet(input_size, no_hidden_units, output_size)
-    predict_polynomial(model, criterion, optimizer, batch_size, orders, test_file, predict_file)
+    predict_polynomial(model, batch_size, orders, test_file, predict_file, test=True)
     print('=== step 3: plot results ===')
     alpha_chebyshev = pd.read_csv(test_file, index_col=0).to_numpy()[:, input_size:]
     alpha_nn = pd.read_csv(predict_file, index_col=0).to_numpy()[:, input_size:]
     assert alpha_chebyshev.shape == alpha_nn.shape
-    plot_row = 8
-    plot_col = 4
+    plot_row = 1
+    plot_col = 2
     show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col)
     show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col)
     plt.show()
