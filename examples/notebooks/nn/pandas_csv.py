@@ -1,23 +1,24 @@
-import random
-
 import pandas as pd
 
-df = pd.read_csv('../paras.csv')
-print(df.head())
 
-# 三个字段 name, site, age
-nme = ["Google", "Runoob", "Taobao", "Wiki"]
-st = ["www.google.com", "www.runoob.com", "www.taobao.com", "www.wikipedia.org"]
-ag = [90, 40, 80, 98]
+def add_dataframe(files):
+    if len(files) == 0:
+        print('no files')
+        return None
+    if len(files) == 1:
+        return files[0]
+    for i in range(len(files)):
+        if i == 0:
+            df = pd.read_csv(files[0], index_col=0)
+        else:
+            df2 = pd.read_csv(files[i], index_col=0)
+            df = df.append(df2)
+    combined_file = f'train_{df.shape[0]}_{df.shape[1] - 9}.csv'
+    df.to_csv(combined_file)
+    return combined_file
 
-# 字典
-dict = {'name': nme, 'site': st, 'age': ag}
 
-df = pd.DataFrame(dict)
-
-# 保存 dataframe
-df.to_csv('site.csv')
-salaries = [random.random()*100 for _ in range(len(ag))]
-add_attr = {'salary': salaries}
-df.to_csv('site.csv')
-print(df)
+if __name__ == '__main__':
+    train_files = ['train_2000_256.csv', 'train_3000_256.csv']
+    combined_file = add_dataframe(train_files)
+    print(pd.read_csv(combined_file).head(2).to_string())

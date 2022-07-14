@@ -83,14 +83,18 @@ def generate_test_paras(n, test_file, **kwargs):
 
 if __name__ == '__main__':
     L = 7
-    samples = 2000
+    samples = 3000
     order_n = 256
+
+    # generate train file
     train_file = f'train_{samples}_{order_n}.csv'
     print(f"generate {train_file}...")
-    # columns_name = generate_train_paras(L, samples, order_n, train_file)
-    test_path = '..'
-    test_file = os.path.join(test_path, 'paras.csv')
-    generate_test_paras(order_n, test_file=test_file)
-    # read dataframe
-    df = pd.read_csv(test_file)
-    print(df.iloc[:5, :2].to_string())
+    columns_name = generate_train_paras(L, samples, order_n, train_file)
+
+    # generate test dataframe
+    # test_path = '..'
+    # test_file = os.path.join(test_path, 'paras.csv')
+    # generate_test_paras(order_n, test_file=test_file)
+    # # read dataframe
+    # df = pd.read_csv(test_file)
+    # print(df.iloc[:5, :2].to_string())

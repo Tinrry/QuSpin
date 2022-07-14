@@ -104,8 +104,21 @@ class NeuralNet(nn.Module):
         return out
 
 
-def train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path, **kwargs):
+def train_model(batch_size, num_epochs, orders, train_file, path, **kwargs):
     for order in orders:
+        model = NeuralNet(input_size, no_hidden_units, output_size).to(device)
+
+        # loss and optimizer
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        if 'use_ckpt' in kwargs.keys() and kwargs['use_ckpt'] is True:
+            # load ckpt to training continuing
+            path = os.path.join('model_8', f'model_{order}.ckpt')
+            checkpoint = torch.load(path)
+            model.load_state_dict(checkpoint)
+            model.eval()
+            model.train()
+
         print(f'=== training model_{order}.ckpt ===')
         # dataset
         train_dataset = AndersonChebyshevDataset(csv_file=train_file, order=order, transform=transforms.ToTensor())
@@ -236,26 +249,20 @@ if __name__ == '__main__':
     output_size = 1  # out for predict i-th order chebyshev polynomial
 
     # test function
-    num_epochs = 5
-    batch_size = 2
+    num_epochs = 100
+    batch_size = 100
     learning_rate = 0.001
-    orders = [x for x in range(2)]  # 训练第几个系数
+    orders = [x for x in range(n+1)]  # 训练第几个系数
     # sample_size are 5000 in paper
-    sample_size = 2
+    sample_size = 5000
     train_file = f'train_{sample_size}_{n}.csv'
     test_file = os.path.join('..', 'paras.csv')
     predict_file = f'predict_{input_size}_{n}.csv'
 
-    model = NeuralNet(input_size, no_hidden_units, output_size).to(device)
-
-    # loss and optimizer
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
     # Train the model, save model ckpt in path
     print("=== step 1: training models ===")
-    train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path=f'model_{input_size}',
-                test=True)
+    train_model(batch_size, num_epochs, orders, train_file, path=f'model_{input_size}',
+                test=True, use_ckpt=True)
     # Predict data, save nn polynomial in predict_file
     print("=== step 2: predict test data ===")
     model = NeuralNet(input_size, no_hidden_units, output_size)
