@@ -9,7 +9,7 @@
 *.cpp
 *.cxx
 *.c 
-
+*.ckpt
 oputils_impl.h
 expm_multiply_parallel_impl.h
 

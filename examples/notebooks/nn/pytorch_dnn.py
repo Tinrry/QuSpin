@@ -2,6 +2,7 @@ import os.path
 
 import pandas as pd
 from json import load
+import math
 
 import torch
 import torch.nn as nn
@@ -13,30 +14,6 @@ from torch.utils.data import Dataset, DataLoader
 from utils import scale_up, scale_down
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-configure = 'config.json'
-with open(configure) as f:
-    config = load(f)
-    n_b = int(config['n_b'])
-    n = int(config['n'])
-    x_min = int(config['x_min'])
-    x_max = int(config['x_max'])
-
-names = "U,ef,eis_0,eis_1,eis_2,hoppings_0,hoppings_1,hoppings_2".strip().split(',') + ["poly_" + str(i) for i in
-                                                                                        range(n + 1)]
-
-input_size = n_b + 2
-no_hidden_units = [2 * input_size, 2 * input_size, 4 * input_size, 4 * input_size, 8 * input_size, 8 * input_size,
-                   8 * input_size, 8 * input_size, 4 * input_size, 4 * input_size, 2 * input_size, 2 * input_size]
-num_classes = 1  # out for predict i-th order chebyshev polynomial
-num_epochs = 50
-batch_size = 100
-learning_rate = 0.001
-orders = [x for x in range(n + 1)]  # 训练第几个系数
-sample_size = 2000
-train_file = f'train_{sample_size}_{n}.csv'
-test_file = os.path.join('..', 'paras.csv')
-predict_file = f'predict_{input_size}_{n}.csv'
 
 
 def chebyshev(x_grid, alpha_c, alpha_n):
@@ -127,112 +104,153 @@ class NeuralNet(nn.Module):
         return out
 
 
-model = NeuralNet(input_size, no_hidden_units, num_classes).to(device)
+def train_model(model, criterion, optimizer, batch_size, num_epochs, orders, train_file, path):
+    for order in orders:
+        print(f'=== training model_{order}.ckpt ===')
+        # dataset
+        train_dataset = AndersonChebyshevDataset(csv_file=train_file, order=order, transform=transforms.ToTensor())
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-# loss and optimizer
-criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        total_step = len(train_dataloader)
+        for epoch in range(num_epochs):
+            for i, sample_batched in enumerate(train_dataloader):
+                andersons = sample_batched['anderson'].reshape(-1, 8).to(device)
+                polys = sample_batched['poly'].to(device).reshape(-1, 1)
 
-# Train the model
-print("=== step 1: training models ===")
-for order in orders:
-    print(f'=== training model_{order}.ckpt ===')
-    # dataset
-    train_dataset = AndersonChebyshevDataset(csv_file=train_file, order=order, transform=transforms.ToTensor())
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+                # Forward pass
+                outputs = model(andersons)
+                loss = criterion(outputs, polys)
 
-    total_step = len(train_dataloader)
-    for epoch in range(num_epochs):
-        for i, sample_batched in enumerate(train_dataloader):
-            andersons = sample_batched['anderson'].reshape(-1, 8).to(device)
-            polys = sample_batched['poly'].to(device).reshape(-1, 1)
+                # Backward and optimize
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-            # Forward pass
-            outputs = model(andersons)
-            loss = criterion(outputs, polys)
-
-            # Backward and optimize
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            if (i + 1) % 100 == 0:
-                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs, i + 1, total_step,
-                                                                         loss.item()))
-    model_path = os.path.join(f'model_{input_size}', f'model_{order}.ckpt')
-    torch.save(model.state_dict(), model_path)
+                if (i + 1) % 100 == 0:
+                    print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs, i + 1, total_step,
+                                                                             loss.item()))
+        model_path = os.path.join(path, f'model_{order}.ckpt')
+        torch.save(model.state_dict(), model_path)
 
 
-print("=== step 2: predict test data ===")
-# initialize predict data
-df = pd.read_csv(test_file, index_col=0)
-predict_df = df.iloc[:, :input_size]
-del df
+def predict_polynomial(model, batch_size, orders, test_file, predict_file):
+    # initialize predict data
+    df = pd.read_csv(test_file, index_col=0)
+    predict_df = df.iloc[:, :input_size]
+    del df
 
-for order in orders:
-    test_dataset = AndersonChebyshevDataset(csv_file=test_file, order=order, transform=transforms.ToTensor())
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    model = NeuralNet(input_size, no_hidden_units, num_classes)
-    model_path = os.path.join(f'model_{input_size}', f'model_{order}.ckpt')
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    predict = None
-    with torch.no_grad():
-        for sample_batched in test_dataloader:
-            andersons = sample_batched['anderson'].reshape(-1, 8)
-            poly = sample_batched['poly']
-            outputs = model(andersons)
-            outputs = outputs.numpy()
-            if predict is None:
-                predict = outputs
-            else:
-                predict = np.concatenate((predict, outputs), axis=0)
-    predict_df[f'poly_{order}'] = predict
-predict_df.to_csv(predict_file)
-print(predict_df.to_string())
+    for order in orders:
+        test_dataset = AndersonChebyshevDataset(csv_file=test_file, order=order, transform=transforms.ToTensor())
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        model_path = os.path.join(f'model_{input_size}', f'model_{order}.ckpt')
+        model.load_state_dict(torch.load(model_path))
+        model.eval()
+        predict = None
+        with torch.no_grad():
+            total = 0
+            L2 = 0
+            for sample_batched in test_dataloader:
+                andersons = sample_batched['anderson'].reshape(-1, 8)
+                poly = sample_batched['poly']
+                outputs = model(andersons)
+                L2 += (outputs - poly).norm(2)
+                outputs = outputs.numpy()
+                if predict is None:
+                    predict = outputs
+                else:
+                    predict = np.concatenate((predict, outputs), axis=0)
+                total += sample_batched.size(0)
+        predict_df[f'poly_{order}'] = predict
+        RMSE = L2 * (1 / math.sqrt(total))
+        print(f'RMSE of the network predict {order}-th on the {total} test samples: {RMSE} ')
+    predict_df.to_csv(predict_file)
 
-print('=== step 3: plot results ===')
 
-alpha_chebyshev = pd.read_csv(test_file, index_col=0).to_numpy()[:, input_size:]
-alpha_nn = pd.read_csv(predict_file, index_col=0).to_numpy()[:, input_size:]
-assert alpha_chebyshev.shape[1] == n + 1
-
-plot_row = 8
-plot_col = 4
-plt.figure(14)
-fig_1, axs_1 = plt.subplots(plot_row, plot_col, figsize=(5 * plot_col, 2.5 * plot_row), facecolor='w',
-                            edgecolor='k')
-fig_1.subplots_adjust(hspace=0.5, wspace=0.5)
-axs_1 = axs_1.ravel()
-fig_1.suptitle("AW Chebyshev vs neural network")
-
-plt.figure(2)
-fig_2, axs_2 = plt.subplots(plot_row, plot_col, figsize=(5 * plot_col, 2.5 * plot_row), facecolor='w',
-                            edgecolor='k')
-fig_2.subplots_adjust(hspace=0.5, wspace=0.5)
-axs_2 = axs_2.ravel()
-fig_2.suptitle("Comparisons Chebyshev vs neural network")
-
-for i, (alpha_c, alpha_n) in enumerate(zip(alpha_chebyshev, alpha_nn)):
-    x_grid = np.linspace(x_min, x_max, 1000)
-    T_c, T_n = chebyshev(x_grid, alpha_c, alpha_n)
+def show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
     plt.figure(14)
-    if i >= plot_row * plot_col:
-        break
-    axs_1[i].plot(x_grid, T_c)
-    axs_1[i].plot(x_grid, T_n)
-    axs_1[i].set_xlabel('$\\omega$')
-    axs_1[i].set_ylabel('spectral')
-    axs_1[i].set_xlim([-x_min, x_max])
-    axs_1[i].set_ylim([0, 0.45])
+    fig_1, axs_1 = plt.subplots(plot_row, plot_col, figsize=(5 * plot_col, 2.5 * plot_row), facecolor='w',
+                                edgecolor='k')
+    fig_1.subplots_adjust(hspace=0.5, wspace=0.5)
+    axs_1 = axs_1.ravel()
+    fig_1.suptitle("AW Chebyshev vs neural network")
 
-# samplers are 1000 in paper experiments
-sampler = len(alpha_chebyshev)
-for i in range(plot_row * plot_col):
+    for i, (alpha_c, alpha_n) in enumerate(zip(alpha_chebyshev, alpha_nn)):
+        x_grid = np.linspace(x_min, x_max, 1000)
+        T_c, T_n = chebyshev(x_grid, alpha_c, alpha_n)
+        plt.figure(14)
+        if i >= plot_row * plot_col:
+            break
+        axs_1[i].plot(x_grid, T_c)
+        axs_1[i].plot(x_grid, T_n)
+        axs_1[i].set_xlabel('$\\omega$')
+        axs_1[i].set_ylabel('spectral')
+        axs_1[i].set_xlim([x_min, x_max])
+        axs_1[i].set_ylim([0, 0.45])
+
+
+def show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
     plt.figure(2)
-    x = alpha_chebyshev[:, i]
-    y = alpha_nn[:, i]
-    axs_2[i].plot(x, y, 'ro')
-    axs_2[i].set_xlabel('Neural Network coefficient')
-    axs_2[i].set_ylabel('Exact coefficient')
-plt.show()
+    fig_2, axs_2 = plt.subplots(plot_row, plot_col, figsize=(5 * plot_col, 2.5 * plot_row), facecolor='w',
+                                edgecolor='k')
+    fig_2.subplots_adjust(hspace=0.5, wspace=0.5)
+    axs_2 = axs_2.ravel()
+    fig_2.suptitle("Comparisons Chebyshev vs neural network")
+
+    # samplers are 1000 in paper experiments
+    for i in range(plot_row * plot_col):
+        plt.figure(2)
+        x = alpha_chebyshev[:, i]
+        y = alpha_nn[:, i]
+        axs_2[i].plot(x, y, 'ro')
+        axs_2[i].set_xlabel('Neural Network coefficient')
+        axs_2[i].set_ylabel('Exact coefficient')
+
+
+if __name__ == '__main__':
+    configure = 'config.json'
+    with open(configure) as f:
+        config = load(f)
+        n_b = int(config['n_b'])
+        n = int(config['n'])
+        x_min = int(config['x_min'])
+        x_max = int(config['x_max'])
+
+    names = "U,ef,eis_0,eis_1,eis_2,hoppings_0,hoppings_1,hoppings_2".strip().split(',') + ["poly_" + str(i) for i in
+                                                                                            range(n + 1)]
+
+    input_size = n_b + 2
+    no_hidden_units = [2 * input_size, 2 * input_size, 4 * input_size, 4 * input_size, 8 * input_size, 8 * input_size,
+                       8 * input_size, 8 * input_size, 4 * input_size, 4 * input_size, 2 * input_size, 2 * input_size]
+    output_size = 1  # out for predict i-th order chebyshev polynomial
+    num_epochs = 50
+    batch_size = 100
+    learning_rate = 0.001
+    orders = [x for x in range(n + 1)]  # 训练第几个系数
+    # sample_size are 5000 in paper
+    sample_size = 2000
+    train_file = f'train_{sample_size}_{n}.csv'
+    test_file = os.path.join('..', 'paras.csv')
+    predict_file = f'predict_{input_size}_{n}.csv'
+
+    model = NeuralNet(input_size, no_hidden_units, output_size).to(device)
+
+    # loss and optimizer
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Train the model, save model ckpt in path
+    print("=== step 1: training models ===")
+    train_model(model, batch_size, num_epochs, orders, train_file, path=f'model_{input_size}')
+    # Predict data, save nn polynomial in predict_file
+    print("=== step 2: predict test data ===")
+    model = NeuralNet(input_size, no_hidden_units, output_size)
+    predict_polynomial(model, criterion, optimizer, batch_size, orders, test_file, predict_file)
+    print('=== step 3: plot results ===')
+    alpha_chebyshev = pd.read_csv(test_file, index_col=0).to_numpy()[:, input_size:]
+    alpha_nn = pd.read_csv(predict_file, index_col=0).to_numpy()[:, input_size:]
+    assert alpha_chebyshev.shape == alpha_nn.shape
+    plot_row = 8
+    plot_col = 4
+    show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col)
+    show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col)
+    plt.show()
