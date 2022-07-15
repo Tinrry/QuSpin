@@ -113,8 +113,8 @@ def train_model(batch_size, num_epochs, orders, train_file, path, **kwargs):
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         if 'use_ckpt' in kwargs.keys() and kwargs['use_ckpt'] is True:
             # load ckpt to training continuing
-            path = os.path.join('model_8', f'model_{order}.ckpt')
-            checkpoint = torch.load(path)
+            path_ckpt = os.path.join(path, f'model_{order}.ckpt')
+            checkpoint = torch.load(path_ckpt)
             model.load_state_dict(checkpoint)
             model.eval()
             model.train()
@@ -148,7 +148,7 @@ def train_model(batch_size, num_epochs, orders, train_file, path, **kwargs):
     return
 
 
-def predict_polynomial(model, batch_size, orders, test_file, predict_file, **kwargs):
+def predict_polynomial(batch_size, orders, test_file, predict_file, **kwargs):
     total_poly = None
     for order in orders:
         test_dataset = AndersonChebyshevDataset(csv_file=test_file, order=order, transform=transforms.ToTensor())
@@ -209,6 +209,7 @@ def show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
         axs_1[i].set_ylabel('spectral')
         axs_1[i].set_xlim([x_min, x_max])
         axs_1[i].set_ylim([0, 0.45])
+    plt.show()
     return
 
 
@@ -228,6 +229,7 @@ def show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col):
         axs_2[i].plot(x, y, 'ro')
         axs_2[i].set_xlabel('Neural Network coefficient')
         axs_2[i].set_ylabel('Exact coefficient')
+    plt.show()
     return
 
 
@@ -259,20 +261,19 @@ if __name__ == '__main__':
     test_file = os.path.join('..', 'paras.csv')
     predict_file = f'predict_{input_size}_{n}.csv'
 
-    # Train the model, save model ckpt in path
-    print("=== step 1: training models ===")
-    train_model(batch_size, num_epochs, orders, train_file, path=f'model_{input_size}',
-                test=True, use_ckpt=True)
-    # Predict data, save nn polynomial in predict_file
-    print("=== step 2: predict test data ===")
-    model = NeuralNet(input_size, no_hidden_units, output_size)
-    predict_polynomial(model, batch_size, orders, test_file, predict_file, test=True)
+    # # Train the model, save model ckpt in path
+    # print("=== step 1: training models ===")
+    # train_model(batch_size, num_epochs, orders, train_file, path=f'model_{input_size}',
+    #             use_ckpt=True)
+    # # Predict data, save nn polynomial in predict_file
+    # print("=== step 2: predict test data ===")
+    # model = NeuralNet(input_size, no_hidden_units, output_size)
+    # predict_polynomial(batch_size, orders, test_file, predict_file)
     print('=== step 3: plot results ===')
     alpha_chebyshev = pd.read_csv(test_file, index_col=0).to_numpy()[:, input_size:]
     alpha_nn = pd.read_csv(predict_file, index_col=0).to_numpy()[:, input_size:]
     assert alpha_chebyshev.shape == alpha_nn.shape
-    plot_row = 1
-    plot_col = 2
+    plot_row = 8
+    plot_col = 4
     show_spectral_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col)
     show_comparisons_subplot(alpha_chebyshev, alpha_nn, plot_row, plot_col)
-    plt.show()
